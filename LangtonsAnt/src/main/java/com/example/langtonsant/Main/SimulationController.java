@@ -16,8 +16,17 @@ import javafx.util.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class SimulationController {
+
+    // UI update optimization
+    private static final int UI_UPDATE_FREQUENCY = 5;
+    private int uiUpdateCounter = 0;
+
+    // Batch processing optimization
+    private static final int DEFAULT_BATCH_SIZE = 10;
+    private int batchSize = DEFAULT_BATCH_SIZE;
 
     private Timeline timeline;
     private Grid grid;
@@ -29,16 +38,24 @@ public class SimulationController {
     private int totalSteps;
     private int currentStep = 0;
     private double stepDelayMs = 100;
+    private boolean isRunning = false;
 
     // Performance tracking
     private PerformanceMetrics performanceMetrics = new PerformanceMetrics();
     private PerformanceDashboard dashboard;
     private Stage dashboardStage;
 
+    // UI components
     private Label antCountLabel = new Label("Ants: 1");
     private TextField antInputField;
     private Label stepCountLabel = new Label("Steps: 0");
     private Label modeLabel = new Label("Mode: Single Thread");
+    private Label cellsPerSecLabel = new Label("Cells/sec: 0");
+    private Label timePerStepLabel = new Label("Time/step: 0 ms");
+
+    // Statistics tracking
+    private long lastUpdateTime = System.nanoTime();
+    private AtomicInteger stepsProcessed = new AtomicInteger(0);
 
     public SimulationController(int gridSize, int steps) {
         this.totalSteps = steps;
@@ -58,67 +75,132 @@ public class SimulationController {
     }
 
     private void stepSimulation() {
-        int batchSize = 10;
+        // Initialize performance metrics on first step
         if (currentStep == 0) {
             performanceMetrics.startRun(manager.isUseParallel(), ants.size(), manager.getThreadCount());
+            lastUpdateTime = System.nanoTime();
+            stepsProcessed.set(0);
         }
 
         int initialSteps = currentStep;
         int initialFlips = grid.getCellFlipCount();
 
+        // Dynamically adjust batch size based on ant count
+        adjustBatchSize();
+
+        // Process a batch of steps
         for (int i = 0; i < batchSize && currentStep < totalSteps; i++) {
             manager.step();
             currentStep++;
+            stepsProcessed.incrementAndGet();
         }
 
+        // Update metrics
         int newSteps = currentStep - initialSteps;
         int newFlips = grid.getNewFlipCount();
-
         performanceMetrics.updateMetrics(newSteps, newFlips);
 
+        // Update step counter label always to show progress
         stepCountLabel.setText(String.format("Steps: %,d / %,d", currentStep, totalSteps));
-        canvas.draw();
 
-        if (currentStep >= totalSteps) {
+        // Update performance statistics
+        updatePerformanceStatistics();
+
+        // Only update UI periodically to reduce overhead
+        // Only update UI periodically to reduce overhead
+        uiUpdateCounter++;
+        boolean isLastBatch = currentStep >= totalSteps;
+
+        if (isLastBatch || uiUpdateCounter % UI_UPDATE_FREQUENCY == 0) {
+            canvas.draw();
+            // Update dashboard if visible - fixed to match PerformanceDashboard API
+            if (dashboard != null && dashboardStage != null && dashboardStage.isShowing()) {
+                // The dashboard appears to be linked to performanceMetrics directly,
+                // so it doesn't need an explicit update call
+                // dashboard.update();
+            }
+        }
+
+        // Handle completion
+        if (isLastBatch) {
             timeline.stop();
+            isRunning = false;
             performanceMetrics.finishRun();
+            showCompletionDialog();
+        }
+    }
 
-            // Display result summary
-            Alert alert = new Alert(Alert.AlertType.INFORMATION);
-            alert.setTitle("Simulation Completed");
-            alert.setHeaderText("Simulation Results");
+    private void adjustBatchSize() {
+        if (manager.isUseParallel()) {
+            if (ants.size() > 500) {
+                batchSize = 25; // Large batch for many ants
+            } else if (ants.size() > 200) {
+                batchSize = 20; // Medium batch for medium ant count
+            } else {
+                batchSize = DEFAULT_BATCH_SIZE; // Default otherwise
+            }
+        } else {
+            batchSize = DEFAULT_BATCH_SIZE; // Standard batch for single-threaded
+        }
+    }
 
-            String modeText = manager.isUseParallel() ? "Parallel" : "Single-threaded";
-            double totalTimeSeconds = performanceMetrics.getTotalElapsedSeconds();
-            double cellsPerSecond = grid.getCellFlipCount() / totalTimeSeconds;
+    private void updatePerformanceStatistics() {
+        long currentTime = System.nanoTime();
+        long elapsedNanos = currentTime - lastUpdateTime;
 
-            String content = String.format(
-                    "Mode: %s\n" +
-                            "Total Time: %.2f seconds\n" +
-                            "Steps Completed: %,d\n" +
-                            "Cells Processed: %,d\n" +
-                            "Cells per Second: %,.0f\n",
-                    modeText, totalTimeSeconds, currentStep, grid.getCellFlipCount(), cellsPerSecond
-            );
+        if (elapsedNanos > 1_000_000_000) { // Update stats every second
+            int steps = stepsProcessed.getAndSet(0);
+            long elapsedMs = elapsedNanos / 1_000_000;
 
-            if (performanceMetrics.getSpeedup() > 0) {
-                content += String.format(
-                        "\nComparison:\n" +
-                                "Speedup: %.2fx\n" +
-                                "Efficiency: %.2f\n",
-                        performanceMetrics.getSpeedup(),
-                        performanceMetrics.getEfficiency()
-                );
+            if (steps > 0) {
+                double timePerStep = elapsedMs / (double) steps;
+                double cellsPerSec = grid.getNewFlipCount() / (elapsedNanos / 1_000_000_000.0);
+
+                timePerStepLabel.setText(String.format("Time/step: %.2f ms", timePerStep));
+                cellsPerSecLabel.setText(String.format("Cells/sec: %,.0f", cellsPerSec));
             }
 
-            alert.setContentText(content);
-            alert.showAndWait();
+            lastUpdateTime = currentTime;
         }
+    }
+
+    private void showCompletionDialog() {
+        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.setTitle("Simulation Completed");
+        alert.setHeaderText("Simulation Results");
+
+        String modeText = manager.isUseParallel() ? "Parallel" : "Single-threaded";
+        double totalTimeSeconds = performanceMetrics.getTotalElapsedSeconds();
+        double cellsPerSecond = grid.getCellFlipCount() / totalTimeSeconds;
+
+        String content = String.format(
+                "Mode: %s\n" +
+                        "Total Time: %.2f seconds\n" +
+                        "Steps Completed: %,d\n" +
+                        "Cells Processed: %,d\n" +
+                        "Cells per Second: %,.0f\n",
+                modeText, totalTimeSeconds, currentStep, grid.getCellFlipCount(), cellsPerSecond
+        );
+
+        if (performanceMetrics.getSpeedup() > 0) {
+            content += String.format(
+                    "\nComparison:\n" +
+                            "Speedup: %.2fx\n" +
+                            "Efficiency: %.2f\n",
+                    performanceMetrics.getSpeedup(),
+                    performanceMetrics.getEfficiency()
+            );
+        }
+
+        alert.setContentText(content);
+        alert.showAndWait();
     }
 
     private void resetSimulation() {
         timeline.stop();
+        isRunning = false;
         currentStep = 0;
+        uiUpdateCounter = 0;
         grid.clear();
         ants.clear();
 
@@ -131,16 +213,33 @@ public class SimulationController {
             System.out.println("Invalid ant count, using 1 by default.");
         }
 
-        Random rand = new Random();
-        int offset = 50;
-        for (int i = 0; i < newAnts; i++) {
-            ants.add(new Ant(rand.nextInt(offset * 2) - offset, rand.nextInt(offset * 2) - offset));
-        }
+        // More efficient ant creation with better spatial distribution
+        spawnAntsWithDistribution(newAnts);
 
         antCountLabel.setText("Ants: " + ants.size());
         stepCountLabel.setText("Steps: 0 / " + totalSteps);
+        timePerStepLabel.setText("Time/step: 0 ms");
+        cellsPerSecLabel.setText("Cells/sec: 0");
+
         canvas.draw();
         canvas.centerOnAnts();
+    }
+
+    private void spawnAntsWithDistribution(int count) {
+        Random rand = new Random();
+        int gridSpan = Math.max(50, (int)Math.sqrt(count) * 10);
+
+        for (int i = 0; i < count; i++) {
+            // Use a better distribution to reduce clustering
+            int x = rand.nextInt(gridSpan * 2) - gridSpan;
+            int y = rand.nextInt(gridSpan * 2) - gridSpan;
+
+            // Add a small random offset to prevent perfect grid alignment
+            x += (rand.nextDouble() - 0.5);
+            y += (rand.nextDouble() - 0.5);
+
+            ants.add(new Ant(x, y));
+        }
     }
 
     public ScrollPane getUI() {
@@ -151,12 +250,18 @@ public class SimulationController {
         // Simulation control buttons
         Button startButton = new Button("Start");
         startButton.setOnAction(e -> {
-            timeline.play();
-            modeLabel.setText("Mode: " + (manager.isUseParallel() ? "Parallel" : "Single Thread"));
+            if (!isRunning) {
+                timeline.play();
+                isRunning = true;
+                modeLabel.setText("Mode: " + (manager.isUseParallel() ? "Parallel" : "Single Thread"));
+            }
         });
 
         Button pauseButton = new Button("Pause");
-        pauseButton.setOnAction(e -> timeline.pause());
+        pauseButton.setOnAction(e -> {
+            timeline.pause();
+            isRunning = false;
+        });
 
         Button resetButton = new Button("Reset");
         resetButton.setOnAction(e -> resetSimulation());
@@ -230,21 +335,22 @@ public class SimulationController {
         HBox speedControl = new HBox(10, speedLabel, speedSlider);
         speedControl.setAlignment(Pos.CENTER);
 
-        // Status panel
-        HBox statusPanel = new HBox(20,
-                antCountLabel,
-                stepCountLabel,
-                modeLabel
-        );
-        statusPanel.setAlignment(Pos.CENTER);
-        statusPanel.setPadding(new Insets(5));
+        // Status panel with additional performance metrics
+        HBox statusPanelTop = new HBox(20, antCountLabel, stepCountLabel, modeLabel);
+        statusPanelTop.setAlignment(Pos.CENTER);
+        statusPanelTop.setPadding(new Insets(5));
+
+        HBox statusPanelBottom = new HBox(20, cellsPerSecLabel, timePerStepLabel);
+        statusPanelBottom.setAlignment(Pos.CENTER);
+        statusPanelBottom.setPadding(new Insets(5));
 
         VBox controlsContainer = new VBox(10,
                 simControls,
                 navControls,
                 antControls,
                 speedControl,
-                statusPanel,
+                statusPanelTop,
+                statusPanelBottom,
                 closeButton
         );
         controlsContainer.setPadding(new Insets(10));
@@ -268,16 +374,17 @@ public class SimulationController {
     private void addAnts() {
         try {
             int count = Integer.parseInt(antInputField.getText());
-            Random rand = new Random();
-            int offset = 50;
-            for (int i = 0; i < count; i++) {
-                ants.add(new Ant(rand.nextInt(offset * 2) - offset, rand.nextInt(offset * 2) - offset));
+            if (count > 0) {
+                spawnAntsWithDistribution(count);
+                antCountLabel.setText("Ants: " + ants.size());
+                canvas.draw();
+                canvas.centerOnAnts();
             }
-            antCountLabel.setText("Ants: " + ants.size());
-            canvas.draw();
-            canvas.centerOnAnts();
         } catch (NumberFormatException ex) {
             System.out.println("Invalid number entered.");
+            Alert alert = new Alert(Alert.AlertType.ERROR,
+                    "Please enter a valid number of ants.", ButtonType.OK);
+            alert.show();
         }
     }
 
@@ -308,10 +415,14 @@ public class SimulationController {
     }
 
     private void restartTimeline() {
-        boolean running = timeline.getStatus() == Timeline.Status.RUNNING;
+        boolean wasRunning = isRunning;
         timeline.stop();
+        isRunning = false;
         createTimeline();
-        if (running) timeline.play();
+        if (wasRunning) {
+            timeline.play();
+            isRunning = true;
+        }
     }
 
     public void setStage(Stage stage) {
