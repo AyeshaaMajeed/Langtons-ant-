@@ -70,6 +70,9 @@ public class Grid {
         int current = cellFlipCount.get();
         int newFlips = current - lastReportedFlipCount;
         lastReportedFlipCount = current;
+        System.out.println("Grid flip count: current=" + current +
+                ", last=" + (current - newFlips) +
+                ", new=" + newFlips);
         return newFlips;
     }
 

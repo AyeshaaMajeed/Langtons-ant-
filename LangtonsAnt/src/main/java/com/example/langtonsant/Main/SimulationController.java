@@ -50,7 +50,7 @@ public class SimulationController {
     private TextField antInputField;
     private Label stepCountLabel = new Label("Steps: 0");
     private Label modeLabel = new Label("Mode: Single Thread");
-    private Label cellsPerSecLabel = new Label("Cells/sec: 0");
+   // private Label cellsPerSecLabel = new Label("Cells/sec: 0");
     private Label timePerStepLabel = new Label("Time/step: 0 ms");
 
     // Statistics tracking
@@ -99,34 +99,27 @@ public class SimulationController {
         int newSteps = currentStep - initialSteps;
         int newFlips = grid.getNewFlipCount();
         performanceMetrics.updateMetrics(newSteps, newFlips);
-
-        // Update step counter label always to show progress
         stepCountLabel.setText(String.format("Steps: %,d / %,d", currentStep, totalSteps));
 
         // Update performance statistics
         updatePerformanceStatistics();
-
-        // Only update UI periodically to reduce overhead
-        // Only update UI periodically to reduce overhead
         uiUpdateCounter++;
         boolean isLastBatch = currentStep >= totalSteps;
 
         if (isLastBatch || uiUpdateCounter % UI_UPDATE_FREQUENCY == 0) {
             canvas.draw();
-            // Update dashboard if visible - fixed to match PerformanceDashboard API
             if (dashboard != null && dashboardStage != null && dashboardStage.isShowing()) {
-                // The dashboard appears to be linked to performanceMetrics directly,
-                // so it doesn't need an explicit update call
                 // dashboard.update();
             }
         }
 
-        // Handle completion
         if (isLastBatch) {
-            timeline.stop();
             isRunning = false;
             performanceMetrics.finishRun();
-            showCompletionDialog();
+
+            timeline.stop();
+
+            javafx.application.Platform.runLater(this::showCompletionDialog);
         }
     }
 
@@ -148,22 +141,28 @@ public class SimulationController {
         long currentTime = System.nanoTime();
         long elapsedNanos = currentTime - lastUpdateTime;
 
-        if (elapsedNanos > 1_000_000_000) { // Update stats every second
+        if (elapsedNanos > 500_000_000) { // Update every half second
             int steps = stepsProcessed.getAndSet(0);
             long elapsedMs = elapsedNanos / 1_000_000;
 
+            int newFlips = grid.getNewFlipCount();
+
             if (steps > 0) {
                 double timePerStep = elapsedMs / (double) steps;
-                double cellsPerSec = grid.getNewFlipCount() / (elapsedNanos / 1_000_000_000.0);
+            //    double cellsPerSec = (newFlips / (elapsedNanos / 1_000_000_000.0));
 
                 timePerStepLabel.setText(String.format("Time/step: %.2f ms", timePerStep));
-                cellsPerSecLabel.setText(String.format("Cells/sec: %,.0f", cellsPerSec));
+               // cellsPerSecLabel.setText(String.format("Cells/sec: %,.0f", cellsPerSec));
+
+                System.out.println("Performance update - Steps: " + steps +
+                        ", New flips: " + newFlips +
+                        ", Elapsed sec: " + (elapsedNanos / 1_000_000_000.0));
+                      // ", Cells/sec: " + cellsPerSec);
             }
 
             lastUpdateTime = currentTime;
         }
     }
-
     private void showCompletionDialog() {
         Alert alert = new Alert(Alert.AlertType.INFORMATION);
         alert.setTitle("Simulation Completed");
@@ -171,29 +170,27 @@ public class SimulationController {
 
         String modeText = manager.isUseParallel() ? "Parallel" : "Single-threaded";
         double totalTimeSeconds = performanceMetrics.getTotalElapsedSeconds();
-        double cellsPerSecond = grid.getCellFlipCount() / totalTimeSeconds;
 
-        String content = String.format(
-                "Mode: %s\n" +
-                        "Total Time: %.2f seconds\n" +
-                        "Steps Completed: %,d\n" +
-                        "Cells Processed: %,d\n" +
-                        "Cells per Second: %,.0f\n",
-                modeText, totalTimeSeconds, currentStep, grid.getCellFlipCount(), cellsPerSecond
-        );
+        // Let's explicitly check the data types and use the correct format specifiers
+        int steps = currentStep;
+        int cellsProcessed = grid.getCellFlipCount();
 
+        // Build the content using StringBuilder to avoid format string issues
+        StringBuilder content = new StringBuilder();
+        content.append("Mode: ").append(modeText).append("\n");
+        content.append("Total Time: ").append(String.format("%.2f", totalTimeSeconds)).append(" seconds\n");
+        content.append("Steps Completed: ").append(steps).append("\n");
+        content.append("Cells Processed: ").append(cellsProcessed);
+
+        // Add comparison metrics if available
         if (performanceMetrics.getSpeedup() > 0) {
-            content += String.format(
-                    "\nComparison:\n" +
-                            "Speedup: %.2fx\n" +
-                            "Efficiency: %.2f\n",
-                    performanceMetrics.getSpeedup(),
-                    performanceMetrics.getEfficiency()
-            );
+            content.append("\n\nComparison:\n");
+            content.append("Speedup: ").append(String.format("%.2fx", performanceMetrics.getSpeedup())).append("\n");
+            content.append("Efficiency: ").append(String.format("%.2f", performanceMetrics.getEfficiency()));
         }
 
-        alert.setContentText(content);
-        alert.showAndWait();
+        alert.setContentText(content.toString());
+        alert.show();
     }
 
     private void resetSimulation() {
@@ -219,7 +216,7 @@ public class SimulationController {
         antCountLabel.setText("Ants: " + ants.size());
         stepCountLabel.setText("Steps: 0 / " + totalSteps);
         timePerStepLabel.setText("Time/step: 0 ms");
-        cellsPerSecLabel.setText("Cells/sec: 0");
+      //  cellsPerSecLabel.setText("Cells/sec: 0");
 
         canvas.draw();
         canvas.centerOnAnts();
@@ -340,7 +337,7 @@ public class SimulationController {
         statusPanelTop.setAlignment(Pos.CENTER);
         statusPanelTop.setPadding(new Insets(5));
 
-        HBox statusPanelBottom = new HBox(20, cellsPerSecLabel, timePerStepLabel);
+        HBox statusPanelBottom = new HBox(20, timePerStepLabel);
         statusPanelBottom.setAlignment(Pos.CENTER);
         statusPanelBottom.setPadding(new Insets(5));
 
@@ -356,7 +353,6 @@ public class SimulationController {
         controlsContainer.setPadding(new Insets(10));
         controlsContainer.setAlignment(Pos.CENTER);
 
-        // Set the canvas to grow to fill available space
         VBox.setVgrow(canvas, Priority.ALWAYS);
         canvas.setWidth(800);
         canvas.setHeight(600);

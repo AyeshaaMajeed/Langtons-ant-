@@ -25,7 +25,6 @@ public class PerformanceDashboard extends VBox {
     private final Label antCountLabel = new Label("Ants: 0");
     private final Label stepCountLabel = new Label("Steps: 0");
     private final Label timePerStepLabel = new Label("Time per step: 0.00 ms");
-    private final Label cellsPerSecondLabel = new Label("Cells per second: 0");
     private final Label stepsPerSecondLabel = new Label("Steps per second: 0");
     private final Label speedupLabel = new Label("Speedup: 0.00x");
     private final Label efficiencyLabel = new Label("Efficiency: 0.00");
@@ -92,7 +91,7 @@ public class PerformanceDashboard extends VBox {
         grid.add(elapsedTimeLabel, 3, 0);
 
         grid.add(timePerStepLabel, 0, 1);
-        grid.add(cellsPerSecondLabel, 1, 1);
+        // Removed cellsPerSecondLabel from grid
         grid.add(stepsPerSecondLabel, 2, 1);
 
         grid.add(speedupLabel, 0, 2);
@@ -117,7 +116,7 @@ public class PerformanceDashboard extends VBox {
         antCountLabel.setText(String.format("Ants: %d", metrics.getAntCount()));
         stepCountLabel.setText(String.format("Steps: %,d", metrics.getTotalStepsCompleted()));
         timePerStepLabel.setText(String.format("Time per step: %.3f ms", metrics.getCurrentTimePerStep()));
-        cellsPerSecondLabel.setText(String.format("Cells per second: %,.0f", metrics.getCurrentCellsPerSecond()));
+        // Removed cellsPerSecondLabel update
         stepsPerSecondLabel.setText(String.format("Steps per second: %,.1f", metrics.getCurrentStepsPerSecond()));
         speedupLabel.setText(String.format("Speedup: %.2fx", metrics.getSpeedup()));
         efficiencyLabel.setText(String.format("Efficiency: %.2f", metrics.getEfficiency()));
@@ -275,7 +274,6 @@ public class PerformanceDashboard extends VBox {
                     60
             );
 
-            // Draw legend
             gc.setFont(Font.font("System", FontWeight.NORMAL, 12));
             gc.setFill(Color.RED);
             gc.fillRect(50, height - 40, 15, 15);

@@ -159,8 +159,6 @@ public class SimulationManager {
                 for (Runnable task : tasks) {
                     futures.add(forkJoinPool.submit(task));
                 }
-
-                // Wait for completion
                 for (Future<?> future : futures) {
                     future.get();
                 }
