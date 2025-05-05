@@ -1,87 +1,62 @@
 package com.example.langtonsant.Main;
 
-import javafx.scene.paint.Color;
 import java.awt.Point;
-import java.util.Random;
 
 public class Ant {
-    // Direction vectors for efficient movement calculation
-    private static final int[] DX = {0, 1, 0, -1};
-    private static final int[] DY = {-1, 0, 1, 0};
-
     private int x;
     private int y;
-    private int direction; // 0: up, 1: right, 2: down, 3: left
-    private final Color color;
-    private static final Random random = new Random();
+    private int direction; // 0=north, 1=east, 2=south, 3=west
 
     public Ant(int x, int y) {
         this.x = x;
         this.y = y;
-        this.direction = random.nextInt(4);
-
-        // Generate random color for visualization
-        this.color = Color.rgb(
-                random.nextInt(200) + 55,
-                random.nextInt(200) + 55,
-                random.nextInt(200) + 55
-        );
+        this.direction = 0; // Start facing north
     }
 
-    /**
-     * Move the ant according to Langton's ant rules
-     */
     public void move(Grid grid) {
-        // Get current cell state
-        boolean currentCellState = grid.isBlack(x, y);
+        // Check if current cell is black
+        boolean currentCellBlack = grid.isBlack(x, y);
+
+        // Turn according to Langton's rules
+        if (currentCellBlack) {
+            turnLeft();
+        } else {
+            turnRight();
+        }
 
         // Flip the color of the current cell
         grid.flip(x, y);
 
-        // Turn based on the cell's color (using bitwise AND for modulo 4)
-        if (currentCellState) {
-            // On black cell, turn left (90° counter-clockwise)
-            direction = (direction + 3) & 3;
-        } else {
-            // On white cell, turn right (90° clockwise)
-            direction = (direction + 1) & 3;
-        }
-
-        // Move forward using direction vectors (more efficient)
-        x += DX[direction];
-        y += DY[direction];
+        // Move forward one step
+        moveForward();
     }
 
-    /**
-     * Move the ant and optionally flip the cell color
-     * Returns the current position before moving
-     */
-    public Point move(Grid grid, boolean justCalculate) {
-        // Create point representing current position
-        Point p = new Point(x, y);
-
-        // Get current cell state
-        boolean currentCellState = grid.isBlack(x, y);
-
-        // Flip the cell color if not just calculating
-        if (!justCalculate) {
-            grid.flip(x, y);
+    // Method to move forward based on current direction
+    public void moveForward() {
+        switch (direction) {
+            case 0: // North
+                y--;
+                break;
+            case 1: // East
+                x++;
+                break;
+            case 2: // South
+                y++;
+                break;
+            case 3: // West
+                x--;
+                break;
         }
+    }
 
-        // Turn based on the cell's color
-        if (currentCellState) {
-            // On black cell, turn left
-            direction = (direction + 3) & 3; // Using bitwise AND for modulo 4
-        } else {
-            // On white cell, turn right
-            direction = (direction + 1) & 3;
-        }
+    // Turn 90 degrees right (clockwise)
+    public void turnRight() {
+        direction = (direction + 1) % 4;
+    }
 
-        // Move forward using direction vectors
-        x += DX[direction];
-        y += DY[direction];
-
-        return p;
+    // Turn 90 degrees left (counter-clockwise)
+    public void turnLeft() {
+        direction = (direction + 3) % 4; // +3 is equivalent to -1 with modulo 4
     }
 
     public int getX() {
@@ -92,12 +67,26 @@ public class Ant {
         return y;
     }
 
-    public Color getColor() {
-        return color;
+    public int getDirection() {
+        return direction;
     }
 
-    public void setPosition(int x, int y) {
-        this.x = x;
-        this.y = y;
+    public Point getDirectionPoint() {
+        Point dirPoint = new Point(0, 0);
+        switch (direction) {
+            case 0: // North
+                dirPoint.y = -1;
+                break;
+            case 1: // East
+                dirPoint.x = 1;
+                break;
+            case 2: // South
+                dirPoint.y = 1;
+                break;
+            case 3: // West
+                dirPoint.x = -1;
+                break;
+        }
+        return dirPoint;
     }
 }

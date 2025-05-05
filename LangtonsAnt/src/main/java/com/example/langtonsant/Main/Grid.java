@@ -7,27 +7,67 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class Grid {
-    private final int LOCK_ARRAY_SIZE = 256; // Power of 2 for efficient modulo
+    private final int REGION_SIZE = 64; // Size of each region
     private final int gridSize;
     private final ConcurrentMap<Point, Boolean> cells = new ConcurrentHashMap<>();
-    private final Object[] cellLocks;
+    private final Object[][] regionLocks;
 
     // Performance metrics
     private AtomicInteger cellFlipCount = new AtomicInteger(0);
     private int lastReportedFlipCount = 0;
 
+    // Number of regions in each dimension
+    private final int numRegions;
+
     public Grid(int size) {
         this.gridSize = size;
+        this.numRegions = (size / REGION_SIZE) + 1;
 
-        // Initialize fine-grained locks for cells
-        this.cellLocks = new Object[LOCK_ARRAY_SIZE];
-        for (int i = 0; i < LOCK_ARRAY_SIZE; i++) {
-            cellLocks[i] = new Object();
+        // Initialize region-level locks
+        this.regionLocks = new Object[numRegions][numRegions];
+        for (int x = 0; x < numRegions; x++) {
+            for (int y = 0; y < numRegions; y++) {
+                regionLocks[x][y] = new Object();
+            }
         }
+    }
+
+    public int getRegionIndex(int coordinate) {
+        // Handle negative coordinates correctly
+        if (coordinate < 0) {
+            return ((coordinate - REGION_SIZE + 1) / REGION_SIZE);
+        }
+        return coordinate / REGION_SIZE;
+    }
+
+    public int[] getRegionBoundaries(int regionX, int regionY) {
+        int startX = regionX * REGION_SIZE;
+        int startY = regionY * REGION_SIZE;
+        int endX = startX + REGION_SIZE - 1;
+        int endY = startY + REGION_SIZE - 1;
+        return new int[]{startX, startY, endX, endY};
+    }
+    
+    public Object getRegionLock(int x, int y) {
+        int regionX = getRegionIndex(x);
+        int regionY = getRegionIndex(y);
+
+        regionX = Math.floorMod(regionX, numRegions);
+        regionY = Math.floorMod(regionY, numRegions);
+
+        return regionLocks[regionX][regionY];
     }
 
     public int getGridSize() {
         return gridSize;
+    }
+
+    public int getRegionSize() {
+        return REGION_SIZE;
+    }
+
+    public int getNumRegions() {
+        return numRegions;
     }
 
     public boolean getCellState(int x, int y) {
@@ -37,20 +77,78 @@ public class Grid {
     public void flip(int x, int y) {
         Point p = new Point(x, y);
 
-        // Compute lock index based on position - distribute locks to reduce contention
-        int lockIndex = Math.abs((x * 73 + y * 151) % LOCK_ARRAY_SIZE);
+        Object lock = getRegionLock(x, y);
 
-        // Lock only the specific cell region
-        synchronized (cellLocks[lockIndex]) {
+        synchronized (lock) {
             // Toggle cell state
             Boolean currentState = cells.get(p);
             if (currentState == null || !currentState) {
                 cells.put(p, true);
             } else {
-                cells.remove(p); // Save memory by removing white cells
+                cells.remove(p);
             }
         }
 
+        cellFlipCount.incrementAndGet();
+    }
+
+    public void flipWithBoundaryCheck(int x, int y) {
+        Point p = new Point(x, y);
+
+        int regionX = getRegionIndex(x);
+        int regionY = getRegionIndex(y);
+
+        boolean nearBoundaryX = (x % REGION_SIZE == 0) || (x % REGION_SIZE == REGION_SIZE - 1);
+        boolean nearBoundaryY = (y % REGION_SIZE == 0) || (y % REGION_SIZE == REGION_SIZE - 1);
+
+        if (nearBoundaryX || nearBoundaryY) {
+            synchronized(regionLocks[Math.floorMod(regionX, numRegions)][Math.floorMod(regionY, numRegions)]) {
+                // Lock potential adjacent regions if we're at a boundary
+                if (nearBoundaryX) {
+                    synchronized(regionLocks[Math.floorMod(regionX + (x % REGION_SIZE == 0 ? -1 : 1), numRegions)]
+                            [Math.floorMod(regionY, numRegions)]) {
+                        if (nearBoundaryY) {
+                            synchronized(regionLocks[Math.floorMod(regionX, numRegions)]
+                                    [Math.floorMod(regionY + (y % REGION_SIZE == 0 ? -1 : 1), numRegions)]) {
+                                flipCellInternal(p);
+                            }
+                        } else {
+                            flipCellInternal(p);
+                        }
+                    }
+                } else if (nearBoundaryY) {
+                    synchronized(regionLocks[Math.floorMod(regionX, numRegions)]
+                            [Math.floorMod(regionY + (y % REGION_SIZE == 0 ? -1 : 1), numRegions)]) {
+                        flipCellInternal(p);
+                    }
+                }
+            }
+        } else {
+            synchronized(regionLocks[Math.floorMod(regionX, numRegions)][Math.floorMod(regionY, numRegions)]) {
+                flipCellInternal(p);
+            }
+        }
+
+        cellFlipCount.incrementAndGet();
+    }
+
+    private void flipCellInternal(Point p) {
+        Boolean currentState = cells.get(p);
+        if (currentState == null || !currentState) {
+            cells.put(p, true);
+        } else {
+            cells.remove(p);
+        }
+    }
+
+    public void flipCellInternal(int x, int y) {
+        Point p = new Point(x, y);
+        Boolean currentState = cells.get(p);
+        if (currentState == null || !currentState) {
+            cells.put(p, true);
+        } else {
+            cells.remove(p);
+        }
         cellFlipCount.incrementAndGet();
     }
 
@@ -70,9 +168,6 @@ public class Grid {
         int current = cellFlipCount.get();
         int newFlips = current - lastReportedFlipCount;
         lastReportedFlipCount = current;
-        System.out.println("Grid flip count: current=" + current +
-                ", last=" + (current - newFlips) +
-                ", new=" + newFlips);
         return newFlips;
     }
 
@@ -80,21 +175,5 @@ public class Grid {
         cells.clear();
         cellFlipCount.set(0);
         lastReportedFlipCount = 0;
-    }
-
-    public void flipBatch(List<Point> points) {
-        // Group points by their lock index to reduce lock contention
-        for (Point p : points) {
-            int lockIndex = Math.abs((p.x * 73 + p.y * 151) % LOCK_ARRAY_SIZE);
-            synchronized (cellLocks[lockIndex]) {
-                Boolean currentState = cells.get(p);
-                if (currentState == null || !currentState) {
-                    cells.put(p, true);
-                } else {
-                    cells.remove(p);
-                }
-            }
-        }
-        cellFlipCount.addAndGet(points.size());
     }
 }

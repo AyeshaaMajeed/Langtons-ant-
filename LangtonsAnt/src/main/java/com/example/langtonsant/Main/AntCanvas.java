@@ -194,7 +194,7 @@ public class AntCanvas extends Canvas {
             }
         }
 
-        // Draw ants
+        // Draw ants with direction indicators
         Color[] antColors = {Color.RED, Color.BLUE, Color.GREEN, Color.ORANGE, Color.PURPLE};
         int idx = 0;
         for (Ant ant : ants) {
@@ -207,8 +207,51 @@ public class AntCanvas extends Canvas {
                 double screenY = gridToScreenY(y);
                 double antSize = Math.max(3, scale * 1.2);
 
+                // Draw the ant body
                 gc.setFill(antColors[idx % antColors.length]);
                 gc.fillOval(screenX - antSize/2, screenY - antSize/2, antSize, antSize);
+
+                // Draw direction indicator
+                double dirX = 0, dirY = 0;
+                int direction = ant.getDirection();
+
+                // Calculate direction vector
+                switch (direction) {
+                    case 0: // North
+                        dirX = 0;
+                        dirY = -1;
+                        break;
+                    case 1: // East
+                        dirX = 1;
+                        dirY = 0;
+                        break;
+                    case 2: // South
+                        dirX = 0;
+                        dirY = 1;
+                        break;
+                    case 3: // West
+                        dirX = -1;
+                        dirY = 0;
+                        break;
+                }
+
+                // Draw direction indicator
+                double indicatorSize = Math.max(2, scale * 0.8);
+                double indicatorX = screenX + dirX * (antSize / 2);
+                double indicatorY = screenY + dirY * (antSize / 2);
+
+                gc.setFill(Color.YELLOW);
+                gc.fillOval(indicatorX - indicatorSize/2, indicatorY - indicatorSize/2,
+                        indicatorSize, indicatorSize);
+
+                // Draw a line to make direction more clear if scale is large enough
+                if (scale >= 4.0) {
+                    gc.setStroke(Color.BLACK);
+                    gc.setLineWidth(Math.max(1, scale / 5));
+                    gc.strokeLine(screenX, screenY,
+                            screenX + dirX * antSize,
+                            screenY + dirY * antSize);
+                }
             }
             idx++;
         }
@@ -279,7 +322,7 @@ public class AntCanvas extends Canvas {
         gc.setStroke(Color.RED);
         gc.strokeRect(viewRectX, viewRectY, viewRectWidth, viewRectHeight);
 
-        // Draw ants on mini-map
+        // Draw ants on mini-map with direction indicators
         int idx = 0;
         for (Ant ant : ants) {
             double x = ant.getX();
@@ -289,8 +332,24 @@ public class AntCanvas extends Canvas {
             double miniX = mapX + mapSize/2 + x * miniMapScale;
             double miniY = mapY + mapSize/2 + y * miniMapScale;
 
+            // Draw ant body
             gc.setFill(Color.RED);
             gc.fillOval(miniX - 1.5, miniY - 1.5, 3, 3);
+
+            // Draw direction indicator on minimap
+            int direction = ant.getDirection();
+            double dirX = 0, dirY = 0;
+
+            switch (direction) {
+                case 0: dirY = -1; break; // North
+                case 1: dirX = 1; break;  // East
+                case 2: dirY = 1; break;  // South
+                case 3: dirX = -1; break; // West
+            }
+
+            gc.setStroke(Color.BLACK);
+            gc.strokeLine(miniX, miniY, miniX + dirX * 2, miniY + dirY * 2);
+
             idx++;
         }
     }
